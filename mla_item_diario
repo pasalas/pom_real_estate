@@ -1,1 +1,126 @@
+/*
+https://github.com/pasalas/pom_real_estate/blob/main/mla_item_diario
 
+
+MLA real estate
+Información diaria de contactos a nivel item, de los anuncios foco POM
+Contactos timedecay:
+  - facebook: todo lo que sea atribuible a campañas de facebook real estate, con objetivo <> de branding
+  - google: todo lo que sea atribuible a campañas de google real estate, con objetivo <> de branding
+  - seo: todo lo que sea atribuible a seo no marcario
+  - own channels: todo lo que sea atribuible a own channels
+  - directo + other: todo lo que no sea lo anteriormente definido
+
+*/
+
+
+-- ingresar fechas de contactos
+DECLARE fecha_desde DATE DEFAULT '2023-09-01'
+;
+DECLARE fecha_hasta DATE DEFAULT '2023-09-30'
+;
+
+WITH A AS
+(
+SELECT 
+    A.LEAD_CREATED_DT
+  , A.sit_site_id
+  , (CASE WHEN B.cat_categ_id_l1 = '1459' THEN 'real estate' WHEN B.cat_categ_id_l1 = '1743' THEN 'motors' WHEN B.cat_categ_id_l1 = '1540' THEN 'services' END) AS vertical
+  , B.CUS_CUST_ID_SEL
+  , A.LEAD_ITEM_ID
+
+---------------------------------------------
+----- columnas de atribución ---------------- 
+---------------------------------------------
+  -- , (CASE WHEN UPPER(C.ite_quot_source) = 'FACEBOOK' THEN 'PAID' -- cotizaciones FB FORMS
+  --         WHEN B.mapp_app_id IN ('6557539776310564','6606988212253970') THEN 'PAID' -- questions FB FORMS
+  --         WHEN UPPER(A.matt_type_source) = 'DIRECT' THEN 'DIRECT'
+  --         WHEN UPPER(A.matt_stimulus_source_type) = 'SEO' AND UPPER(A.matt_strategy) = 'BRAND' THEN 'DIRECT'
+  --         WHEN UPPER(A.matt_stimulus_source_type) = 'SEO' AND UPPER(A.matt_strategy) = 'NON BRAND' THEN 'SEO'
+  --         WHEN UPPER(A.matt_source) IN ('MERCADO LIBRE','MERCADO PAGO') THEN 'OWN CHANNELS'
+  --         WHEN UPPER(A.matt_channel) IN ('NOTIFICATIONS') THEN 'OWN CHANNELS'
+  --         WHEN UPPER(A.matt_businessline) IN ('REAL ESTATE','MOTORS','VIS GENERIC / ALL','AUTOPARTES') THEN 'PAID'
+  --         ELSE 'other' END) AS grouped_attribution
+
+  -- , (CASE WHEN UPPER(C.ite_quot_source) = 'FACEBOOK' THEN 'POM VIS'
+  --         WHEN B.mapp_app_id IN ('6557539776310564','6606988212253970') THEN 'POM VIS'
+  --         WHEN (UPPER(H.matt_vertical) IN ('MOTORS','REAL ESTATE','PORTAL INMOBILIARIO','VIS GENERIC / ALL')
+  --               AND UPPER(H.matt_campaign_type) IN ('ALWAYS ON','FECHA ESPECIAL','INICIATIVA ESTRATEGICA','EXPERIMENTO','GEN')
+  --               AND UPPER(H.matt_implementation_channel) NOT IN ('NOTIFICATIONS','EMAIL'))  THEN 'POM VIS'
+  --         END) AS is_POM_VIS -- logica acordada con equipo POM
+
+
+  -- , A.matt_type_source      -- external, direct
+  -- , A.matt_business_unit    -- VIS
+  -- , A.matt_stimulus_source_type
+  -- , A.matt_businessline     -- 'MOTORS','CORE','VIS GENERIC / ALL','REAL ESTATE','AUTOPARTES'
+  -- , A.matt_source           -- DIRECT,FACEBOOK,BING,GOOGLE,MERCADO LIBRE,MEDIOS,TIKTOK
+  -- , A.matt_channel          -- DIRECT,DISPLAY,SEARCH,EMAIL,PAID SEARCH,NOTIFICATIONS,VIDEO
+  -- , A.matt_implementation_name -- 'Bing Organico','Google Organico','EMAIL','PUSH APP ML','FACEBOOK LEAD ADS','YOUTUBE TRUE VIEW','GOOGLE DSA','GOOGLE PAID SEARCH','FACEBOOK DABA','FACEBOOK CONVERSIONES','FACEBOOK 
+
+
+  , ROUND(SAFE_DIVIDE(SUM(MATT_PORC_TIMEDECAY), 100)) AS total_contact
+
+  , ROUND(SAFE_DIVIDE(SUM( IF( (matt_businessline= 'REAL ESTATE' AND matt_source = 'FACEBOOK' AND UPPER(H.matt_campaign_type) IN ('ALWAYS ON','FECHA ESPECIAL','INICIATIVA ESTRATEGICA','EXPERIMENTO','GEN') ) OR (ITE_QUOT_SOURCE IN ('facebook') OR QUESTION_APP_ID IN (6606988212253970,6557539776310564) ), MATT_PORC_TIMEDECAY, 0)), 100) ) AS facebook_contact
+
+  , ROUND(SAFE_DIVIDE(SUM( IF( (matt_businessline= 'REAL ESTATE' AND matt_source = 'GOOGLE' AND UPPER(H.matt_campaign_type) IN ('ALWAYS ON','FECHA ESPECIAL','INICIATIVA ESTRATEGICA','EXPERIMENTO','GEN') ), MATT_PORC_TIMEDECAY, 0) ), 100) ) AS google_contact
+
+  , ROUND(SAFE_DIVIDE(SUM( IF(UPPER(A.matt_stimulus_source_type) = 'SEO' AND UPPER(A.matt_strategy) = 'NON BRAND', MATT_PORC_TIMEDECAY, 0) ), 100) ) AS seo_contact
+
+  , ROUND(SAFE_DIVIDE(SUM( IF( (UPPER(A.matt_source) IN ('MERCADO LIBRE','MERCADO PAGO') ) OR (UPPER(A.matt_channel) IN ('NOTIFICATIONS') ), MATT_PORC_TIMEDECAY, 0) ), 100) ) AS own_channels_contact
+
+
+
+FROM `growth-attribution.production.BT_MATT_ATTRIBUTION_LEADS` AS A
+
+-- para joinear con fuente de dónde MATT toma leads de questions, call, whatsapp y quotation
+LEFT JOIN `meli-bi-data.WHOWNER.BT_CONTACTS_CLASSIFIEDS` AS B
+ON A.lead_id = B.id
+
+-- para tener info extra de quotations. FB FORMS = ITE_QUOT_SOURCE IN ('facebook')
+LEFT JOIN `meli-bi-data.WHOWNER.BT_ITE_QUOTATION` AS C
+ON CAST(B.EXTERNAL_ENTITY_ID AS STRING) = CAST(C.ITE_QUOTATION_ID AS STRING)
+
+-- para tener info extra de questions. FB FORMS = QUESTION_APP_ID IN (6606988212253970,6557539776310564)
+LEFT JOIN `meli-bi-data.WHOWNER.BT_ITEM_QUESTIONS` AS D
+ON CAST(B.EXTERNAL_ENTITY_ID AS STRING) = CAST(D.QUES_ID AS STRING)
+
+-- para tener arbol de categorias
+LEFT JOIN `meli-bi-data.WHOWNER.AG_LK_CAT_CATEGORIES` AS E 
+ON E.CAT_CATEG_ID_L7 = CAST(B.CAT_CATEG_ID_L7 AS INTEGER)
+AND E.SIT_SITE_ID = B.SIT_SITE_ID
+
+-- para joinear con atributos de anuncio real estate
+LEFT JOIN `meli-bi-data.SBOX_CLASSI_PLANNING.LK_ATRIBUTOS_IMRE` AS F
+ON CAST(A.lead_item_id AS STRING) = CAST(F.ite_item_id AS STRING)
+AND A.sit_site_id = F.sit_site_id
+
+
+-- para joinear con datos de cada tool id existente en el matt admin
+LEFT JOIN `meli-bi-data.WHOWNER.BT_MATT_METADATA` AS H
+ON A.pms_tool_id = H.matt_tool
+AND H.matt_business_unit = 'VIS' -- solo tool ids de VIS
+AND H.tim_day = CURRENT_DATE -- para traer el listado actualizado sin duplicar informacion
+
+WHERE DATE_TRUNC(A.LEAD_CREATED_DT, MONTH) BETWEEN fecha_desde AND fecha_hasta
+AND LEAD_ATTRIBUTION_TYPE = 'VIS' -- para tener metricas relacionadas a VIS (en la tabla convive otra BU)
+AND LEAD_TYPE IN ('Quotation','Question','Click to Whatsapp','Click to Call') 
+AND B.cat_categ_id_l1 IN ('1459')
+AND A.sit_site_id = 'MLA' 
+
+-- anuncios foco POM
+AND F.USER_TYPE = 'Inmobiliaria'
+AND F.OPERATION IN ('Venta')
+AND F.PROPERTY_TYPE IN ('Casa','Departamento','Ph')
+AND F.COMBO IN ('Oro Premium')
+AND F.ESTADO IN ('Capital Federal','Bs.As. G.B.A. Sur','Bs.As. G.B.A. Oeste','Bs.As. G.B.A. Norte')
+
+
+GROUP BY 1,2,3,4,5
+ORDER BY 1,2,3,4,5
+)
+
+SELECT A.*
+  , total_contact - (facebook_contact + google_contact + seo_contact + own_channels_contact ) AS direct_other_contact
+FROM A
+;
