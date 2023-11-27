@@ -17,7 +17,7 @@ Contactos timedecay:
 -- ingresar fechas de contactos
 DECLARE fecha_desde DATE DEFAULT '2023-09-01'
 ;
-DECLARE fecha_hasta DATE DEFAULT '2023-09-30'
+DECLARE fecha_hasta DATE DEFAULT CURRENT_DATE
 ;
 
 WITH A AS
@@ -121,6 +121,6 @@ ORDER BY 1,2,3,4,5
 )
 
 SELECT A.*
-  , total_contact - (facebook_contact + google_contact + seo_contact + own_channels_contact ) AS direct_other_contact
+  , COALESCE(total_contact, 0) - ( COALESCE(facebook_contact, 0) + COALESCE(google_contact, 0) + COALESCE(seo_contact, 0) + COALESCE(own_channels_contact, 0) ) AS direct_other_contact
 FROM A
 ;
